@@ -102,6 +102,27 @@ func (m *Manager) Recover(circuitID string, sessionID uuid.UUID) error {
 	return nil
 }
 
+// RestoreFault reinstates a faulted reservation after a process restart. It
+// never overwrites a live reservation and advances the circuit generation so
+// later reservations cannot reuse the restored generation. Emergency stop
+// recovery uses it to keep circuits with uncertain close receipts occupied;
+// they are only releasable through explicit recovery.
+func (m *Manager) RestoreFault(reservation Reservation) {
+	if reservation.CircuitID == "" || reservation.SessionID == uuid.Nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.reservations[reservation.CircuitID]; exists {
+		return
+	}
+	reservation.Faulted = true
+	m.reservations[reservation.CircuitID] = reservation
+	if reservation.Generation > m.generations[reservation.CircuitID] {
+		m.generations[reservation.CircuitID] = reservation.Generation
+	}
+}
+
 func (m *Manager) Get(circuitID string) (Reservation, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

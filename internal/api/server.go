@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/wyw14/cry-98/internal/alarm"
+	"github.com/wyw14/cry-98/internal/emergency"
 	"github.com/wyw14/cry-98/internal/fill"
 	"github.com/wyw14/cry-98/internal/monitor"
 	"github.com/wyw14/cry-98/internal/probe"
@@ -18,6 +19,7 @@ type Dependencies struct {
 	Vessels        *vessel.Registry
 	Fills          *fill.Service
 	Alarms         *alarm.Service
+	Emergency      *emergency.Service
 	Probes         *probe.Registry
 	ProbeLifecycle *probe.Lifecycle
 	Transfers      *transfer.Service
@@ -66,6 +68,10 @@ func (s *Server) routes() chi.Router {
 		api.Post("/alarms/{id}/acknowledge", s.acknowledgeAlarm)
 		api.Post("/alarms/{id}/clear", s.clearAlarm)
 		api.Post("/alarms/{id}/suppress", s.suppressAlarm)
+		api.Get("/emergency/stop", s.listEmergencyStops)
+		api.Get("/emergency/stop/{id}", s.getEmergencyStop)
+		api.Post("/emergency/resume-zone", s.resumeEmergencyZone)
+		api.Post("/emergency/recover-fault", s.recoverEmergencyFault)
 		api.Get("/probes", s.listProbes)
 		api.Post("/probes/{id}/samples", s.publishProbeSample)
 		api.Post("/probes/{id}/rebind", s.rebindProbe)

@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
+	"github.com/wyw14/cry-98/internal/model"
 )
 
 type Route struct {
@@ -53,24 +55,35 @@ func (s *RouteService) TrackOpen(route Route) error {
 	return nil
 }
 
-func (s *RouteService) Close(ctx context.Context, sessionID uuid.UUID) error {
+func (s *RouteService) Close(ctx context.Context, sessionID uuid.UUID) (model.ValveReceipt, error) {
 	s.mu.Lock()
 	route, ok := s.open[sessionID]
 	s.mu.Unlock()
 	if !ok {
-		return errors.New("route is not open")
+		return model.ValveReceipt{}, errors.New("route is not open")
 	}
-	if _, err := s.commands.Close(
+	receipt, err := s.commands.Close(
 		ctx,
 		route.CloseCommandID,
 		route.SessionID,
 		route.CircuitGeneration,
 		route.ValveID,
-	); err != nil {
-		return err
+	)
+	if err != nil {
+		return model.ValveReceipt{}, err
 	}
 	s.mu.Lock()
 	delete(s.open, sessionID)
 	s.mu.Unlock()
-	return nil
+	return receipt, nil
+}
+
+// RouteFor reports the tracked open route for a session. Emergency handling
+// uses it to drive the same pre-issued close command instead of minting a
+// second, possibly conflicting, dangerous command.
+func (s *RouteService) RouteFor(sessionID uuid.UUID) (Route, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	route, ok := s.open[sessionID]
+	return route, ok
 }

@@ -58,3 +58,9 @@ func (s *Service) Get(id uuid.UUID) (model.FillSession, bool) {
 func (s *Service) List() []model.FillSession {
 	return s.coordinator.List()
 }
+
+// Coordinator exposes the underlying coordinator so cross-cutting services
+// such as emergency stop can drive zone blocks and emergency valve closes.
+func (s *Service) Coordinator() *Coordinator {
+	return s.coordinator
+}

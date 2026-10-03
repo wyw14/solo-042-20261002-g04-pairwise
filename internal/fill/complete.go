@@ -63,7 +63,7 @@ func (s *CompletionService) Complete(ctx context.Context, sessionID uuid.UUID) (
 	if err != nil {
 		return model.FillSession{}, err
 	}
-	if err := s.coordinator.routes.Close(ctx, session.ID); err != nil {
+	if _, err := s.coordinator.routes.Close(ctx, session.ID); err != nil {
 		_ = s.coordinator.circuits.RetainFault(session.CircuitID, session.ID)
 		return model.FillSession{}, err
 	}

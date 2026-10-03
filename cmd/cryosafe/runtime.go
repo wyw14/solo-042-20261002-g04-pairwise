@@ -11,6 +11,7 @@ import (
 	"github.com/wyw14/cry-98/internal/alarm"
 	"github.com/wyw14/cry-98/internal/api"
 	"github.com/wyw14/cry-98/internal/circuit"
+	"github.com/wyw14/cry-98/internal/emergency"
 	"github.com/wyw14/cry-98/internal/fill"
 	"github.com/wyw14/cry-98/internal/journal"
 	"github.com/wyw14/cry-98/internal/model"
@@ -191,12 +192,26 @@ func buildRuntime(cfg config, now func() time.Time) (*runtime, error) {
 		return nil, err
 	}
 	suppressions := alarm.NewSuppressionService(store, now)
+
+	emergencyService, err := emergency.NewService(fillService, vesselRegistry, store, now)
+	if err != nil {
+		return nil, err
+	}
+	// Rebuild zone blocks and faulted circuits before any alarm can trigger
+	// a response, so a restart cannot release an uncertain isolation or
+	// re-drive a close command.
+	if err := emergency.NewRecovery(emergencyService).Restore(); err != nil {
+		return nil, err
+	}
+	alarmService.SetSevereHook(emergencyService.Hook)
+
 	healthService := monitor.NewHealthService(ingestor, circuitHealth, probeMonitor, now)
 
 	apiServer := api.NewServer(api.Dependencies{
 		Vessels:        vesselRegistry,
 		Fills:          fillService,
 		Alarms:         alarmService,
+		Emergency:      emergencyService,
 		Probes:         probeRegistry,
 		ProbeLifecycle: probeLifecycle,
 		Transfers:      transferService,

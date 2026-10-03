@@ -91,3 +91,15 @@ func (a Alarm) Clear(now time.Time) Alarm {
 	a.UpdatedAt = now.UTC()
 	return a
 }
+
+// Severe reports whether the alarm kind demands an emergency stop-fill
+// response. High pressure and nitrogen leaks can escalate while a fill is
+// running, so every active session in the vessel's area must be isolated.
+func (a Alarm) Severe() bool {
+	switch a.Kind {
+	case AlarmPressure, AlarmLeak:
+		return true
+	default:
+		return false
+	}
+}

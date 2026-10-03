@@ -12,17 +12,32 @@ import (
 )
 
 type Service struct {
-	mu       sync.RWMutex
-	alarms   map[uuid.UUID]model.Alarm
-	delivery *DeliveryService
-	now      func() time.Time
+	mu         sync.RWMutex
+	alarms     map[uuid.UUID]model.Alarm
+	delivery   *DeliveryService
+	severeHook SevereHook
+	now        func() time.Time
 }
+
+// SevereHook is invoked synchronously when a raised alarm demands emergency
+// handling (high pressure, nitrogen leak). It is wired to the emergency
+// stop-fill service and runs before notification delivery so valve isolation
+// takes priority.
+type SevereHook func(context.Context, model.Alarm) error
 
 func NewService(delivery *DeliveryService, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
 	return &Service{alarms: make(map[uuid.UUID]model.Alarm), delivery: delivery, now: now}
+}
+
+// SetSevereHook registers the emergency response for severe alarms. It must
+// be called before the service starts raising alarms.
+func (s *Service) SetSevereHook(hook SevereHook) {
+	s.mu.Lock()
+	s.severeHook = hook
+	s.mu.Unlock()
 }
 
 func (s *Service) Raise(ctx context.Context, vesselID string, kind model.AlarmKind, message string) (model.Alarm, error) {
@@ -32,12 +47,24 @@ func (s *Service) Raise(ctx context.Context, vesselID string, kind model.AlarmKi
 	}
 	s.mu.Lock()
 	s.alarms[alarm.ID] = alarm
+	hook := s.severeHook
 	s.mu.Unlock()
-	delivered, err := s.delivery.Deliver(ctx, alarm)
+
+	// Isolate affected fills first; emergency handling is idempotent per
+	// alarm, so a repeated alarm can never drive a second close command.
+	var emergencyErr error
+	if alarm.Severe() && hook != nil {
+		emergencyErr = hook(ctx, alarm)
+	}
+
+	delivered, deliveryErr := s.delivery.Deliver(ctx, alarm)
 	s.mu.Lock()
 	s.alarms[alarm.ID] = delivered
 	s.mu.Unlock()
-	return delivered, err
+	if deliveryErr != nil {
+		return delivered, deliveryErr
+	}
+	return delivered, emergencyErr
 }
 
 func (s *Service) Restore(alarm model.Alarm) {
