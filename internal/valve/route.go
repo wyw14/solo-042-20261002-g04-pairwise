@@ -53,6 +53,15 @@ func (s *RouteService) TrackOpen(route Route) error {
 	return nil
 }
 
+// Route returns the tracked open route for a session, including the close
+// command identity reserved for it.
+func (s *RouteService) Route(sessionID uuid.UUID) (Route, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	route, ok := s.open[sessionID]
+	return route, ok
+}
+
 func (s *RouteService) Close(ctx context.Context, sessionID uuid.UUID) error {
 	s.mu.Lock()
 	route, ok := s.open[sessionID]

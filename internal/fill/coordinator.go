@@ -25,12 +25,19 @@ type Coordinator struct {
 	routes      *valve.RouteService
 	retry       *RetryService
 	vessels     *vessel.StateService
+	zoneLock    ZoneLocker
 	now         func() time.Time
 }
 
 func (c *Coordinator) SetRetryService(retry *RetryService) {
 	c.mu.Lock()
 	c.retry = retry
+	c.mu.Unlock()
+}
+
+func (c *Coordinator) SetZoneLocker(locker ZoneLocker) {
+	c.mu.Lock()
+	c.zoneLock = locker
 	c.mu.Unlock()
 }
 
@@ -54,6 +61,9 @@ func (c *Coordinator) Start(ctx context.Context, vesselID string, origin model.F
 	defer c.mu.Unlock()
 	if _, exists := c.active[vesselID]; exists {
 		return model.FillSession{}, ErrActiveSession
+	}
+	if c.zoneLocked(vesselID) {
+		return model.FillSession{}, ErrZoneLocked
 	}
 	selected, err := c.selectCircuit()
 	if err != nil {

@@ -12,10 +12,11 @@ import (
 )
 
 type Service struct {
-	mu       sync.RWMutex
-	alarms   map[uuid.UUID]model.Alarm
-	delivery *DeliveryService
-	now      func() time.Time
+	mu        sync.RWMutex
+	alarms    map[uuid.UUID]model.Alarm
+	delivery  *DeliveryService
+	observers []func(context.Context, model.Alarm)
+	now       func() time.Time
 }
 
 func NewService(delivery *DeliveryService, now func() time.Time) *Service {
@@ -25,6 +26,15 @@ func NewService(delivery *DeliveryService, now func() time.Time) *Service {
 	return &Service{alarms: make(map[uuid.UUID]model.Alarm), delivery: delivery, now: now}
 }
 
+// AddObserver registers a callback invoked synchronously when an alarm is
+// raised, before notification delivery, so safety-critical reactions run
+// first.
+func (s *Service) AddObserver(observer func(context.Context, model.Alarm)) {
+	s.mu.Lock()
+	s.observers = append(s.observers, observer)
+	s.mu.Unlock()
+}
+
 func (s *Service) Raise(ctx context.Context, vesselID string, kind model.AlarmKind, message string) (model.Alarm, error) {
 	alarm, err := model.NewAlarm(vesselID, kind, message, s.now())
 	if err != nil {
@@ -32,7 +42,11 @@ func (s *Service) Raise(ctx context.Context, vesselID string, kind model.AlarmKi
 	}
 	s.mu.Lock()
 	s.alarms[alarm.ID] = alarm
+	observers := append([]func(context.Context, model.Alarm){}, s.observers...)
 	s.mu.Unlock()
+	for _, observer := range observers {
+		observer(ctx, alarm)
+	}
 	delivered, err := s.delivery.Deliver(ctx, alarm)
 	s.mu.Lock()
 	s.alarms[alarm.ID] = delivered

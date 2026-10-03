@@ -11,6 +11,7 @@ import (
 	"github.com/wyw14/cry-98/internal/alarm"
 	"github.com/wyw14/cry-98/internal/api"
 	"github.com/wyw14/cry-98/internal/circuit"
+	"github.com/wyw14/cry-98/internal/emergency"
 	"github.com/wyw14/cry-98/internal/fill"
 	"github.com/wyw14/cry-98/internal/journal"
 	"github.com/wyw14/cry-98/internal/model"
@@ -161,6 +162,14 @@ func buildRuntime(cfg config, now func() time.Time) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	emergencyService, err := emergency.NewService(store, vesselRegistry, fillCoordinator, routeService, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := emergencyService.Restore(); err != nil {
+		return nil, err
+	}
+	fillCoordinator.SetZoneLocker(emergencyService)
 	if err := ingestor.AddObserver(func(sample model.Sample) {
 		if sample.Kind == model.ProbeLevel && sample.Value < 20 {
 			_, _ = fillService.OnLowLevel(context.Background(), sample.VesselID, sample.ObservedAt)
@@ -190,6 +199,11 @@ func buildRuntime(cfg config, now func() time.Time) (*runtime, error) {
 	if err := alarm.NewRecovery(store, alarmService).Restore(); err != nil {
 		return nil, err
 	}
+	alarmService.AddObserver(func(ctx context.Context, raised model.Alarm) {
+		if _, err := emergencyService.HandleAlarm(ctx, raised); err != nil {
+			slog.Error("emergency stop handling failed", "alarm_id", raised.ID, "error", err)
+		}
+	})
 	suppressions := alarm.NewSuppressionService(store, now)
 	healthService := monitor.NewHealthService(ingestor, circuitHealth, probeMonitor, now)
 
@@ -197,6 +211,7 @@ func buildRuntime(cfg config, now func() time.Time) (*runtime, error) {
 		Vessels:        vesselRegistry,
 		Fills:          fillService,
 		Alarms:         alarmService,
+		Emergency:      emergencyService,
 		Probes:         probeRegistry,
 		ProbeLifecycle: probeLifecycle,
 		Transfers:      transferService,
